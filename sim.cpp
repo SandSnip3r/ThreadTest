@@ -24,42 +24,49 @@ private:
   static mt19937 eng;
   static mutex engMutex;
   static mutex printMutex;
+  template<int MinSleepUSec=0, int MaxSleepUSec=0>
+  void sleep() {
+    int sleep;
+    {
+      unique_lock<mutex> engLockGuard(engMutex);
+      sleep = dist(eng);
+    }
+    usleep(sleep);
+  }
 public:
   BotSimulator() = default;
   BotSimulator(int minSleep, int maxSleep) : minSleep_(minSleep), maxSleep_(maxSleep) {}
-  template<int MinSleepUSec=0, int MaxSleepUSec=0>
+  template<int WorkCycles>
+  void work() {
+    volatile int n=0;
+    for (int i=0; i<WorkCycles; ++i) {
+      ++n;
+    }
+    n=1;
+  }
+  template<int WorkCycles=100, int MinSleepUSec=0, int MaxSleepUSec=0>
   void run() {
     while (true) {
       {
+        // Do some work here
+        work<WorkCycles>();
+        // Work task is to increment `count`
         unique_lock<mutex> countLockGuard(countMutex);
         ++count;
       }
-      if (count % 1000 == 0) {
+      // Every 1000000, print an update
+      if (count % 10000 == 0) {
         unique_lock<mutex> printLockGuard(printMutex);
         cout << MinSleepUSec << ',' << MaxSleepUSec << ',' << count << '\n';
       }
-      int sleep;
-      {
-        unique_lock<mutex> engLockGuard(engMutex);
-        sleep = dist(eng);
-      }
-      usleep(sleep);
+      sleep<MinSleepUSec,MaxSleepUSec>();
     }
   }
 };
 
 template<>
-void BotSimulator::run<0,0>() {
-  while (true) {
-    {
-      unique_lock<mutex> countLockGuard(countMutex);
-      ++count;
-    }
-    if (count % 1000000 == 0) {
-      unique_lock<mutex> printLockGuard(printMutex);
-      cout << "0,0," << count << '\n';
-    }
-  }
+void BotSimulator::sleep<0,0>() {
+  // No sleep
 }
 
 int BotSimulator::count{0};
@@ -69,13 +76,20 @@ mutex BotSimulator::engMutex;
 mutex BotSimulator::printMutex;
 
 int main() {
-  /// kSimCount     number of bots to simulate
+  /// kSimCount             Number of bots to simulate
+  /// kMinSleepTimeUSec     Minimum bot "sleep" time in microseconds
+  /// kMaxSleepTimeUSec     Maximum bot "sleep" time in microseconds
+  /// botSims               Collection of bot simulators
+  /// botThreads            Collection of threads for each bot simulator's work
   const int kSimCount{2000};
+  constexpr int kWorkCycles{10000};
+  constexpr int kMinSleepTimeUSec{100};
+  constexpr int kMaxSleepTimeUSec{1000};
   vector<BotSimulator> botSims(kSimCount);
   vector<thread> botThreads;
   botThreads.reserve(kSimCount);
   for (int i=0; i<kSimCount; ++i) {
-    botThreads.emplace_back(&BotSimulator::run<1000, 10000>, botSims[i]);
+    botThreads.emplace_back(&BotSimulator::run<kWorkCycles, kMinSleepTimeUSec, kMaxSleepTimeUSec>, botSims[i]);
   }
   for (auto &thr : botThreads) {
     thr.join();
